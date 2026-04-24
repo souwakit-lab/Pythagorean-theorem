@@ -13,6 +13,11 @@
   .input-row{display:flex;gap:8px;margin-bottom:12px;width:100%;}
   .input-row select,.input-row input{flex:1;padding:12px 6px;border-radius:10px;border:1px solid #ccc;font-size:15px;text-align:center;min-width:0;}
   input#studentName{background:#f0f0f0;}
+  
+  .level{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 16px;}
+  .level button{flex:1 1 100%;padding:12px 0;margin:0;border-radius:10px;border:none;background:#ddd;font-size:16px;font-weight:bold;line-height:1.4;color:#555;cursor:pointer;transition:0.2s;}
+  .level .on{background:#378cf9;color:white;}
+
   .start-btn{width:100%;padding:14px;background:#378cf9;color:white;border:none;border-radius:12px;font-size:18px;margin-bottom:12px;font-weight:bold;}
   .start-btn:disabled{background:#ccc;}
   
@@ -36,7 +41,6 @@
     overflow-x: auto;
   }
 
-  /* 專為純數字與根號設計的乾淨鍵盤 */
   .keypad{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0;}
   .key{padding:16px 8px;border:none;border-radius:12px;background:#eef2f5;font-size:24px;font-weight:bold;color:#333;}
   .func{background:#d1f7e5;}
@@ -73,6 +77,10 @@
       <option value="">請選學號</option>
     </select>
     <input id="studentName" placeholder="姓名" disabled readonly>
+  </div>
+
+  <div class="level">
+    <button id="lv1" onclick="setLevel(1)">勾股定理題型一</button>
   </div>
 
   <button class="start-btn" id="startBtn" onclick="startGame()" disabled>開始答題</button>
@@ -119,7 +127,7 @@
 </div>
 
 <script>
-let score = 0, luck = 0, ans = "", currentMul = 1, locked = false, gameStarted = false;
+let score = 0, luck = 0, ans = "", currentMul = 1, locked = false, gameStarted = false, level = null;
 let totalQ = 0, correctQ = 0, streak = 0, startTime = null, timer = null, currentInput = "";
 
 const studentData = {
@@ -140,62 +148,88 @@ function simplifyNumber(n) {
   return (coeff === 1 ? "" : coeff) + "√" + radicand;
 }
 
-// 核心檢查：確保數字是「可以提取公因數的根式」，且「不是完美整數」
 function isSimplifiableSurd(n) {
   if (n <= 0) return false;
-  if (Math.sqrt(n) % 1 === 0) return false; // 拒絕完美平方數 (如 4, 9, 16, 25...)，保證答案帶根號
+  if (Math.sqrt(n) % 1 === 0) return false; 
   for (let i = 2; i * i <= n; i++) {
-    if (n % (i * i) === 0) return true; // 確認有大於 1 的平方因數 (如 12, 20, 50...)，保證可以化簡
+    if (n % (i * i) === 0) return true; 
   }
-  return false; // 拒絕無法化簡的根式 (如 15, 17, 21...)
+  return false; 
 }
 
+// 數學輔助：計算點 (x,y) 繞中心 (cx,cy) 旋轉 angle 度後的新坐標
+function rotatePt(x, y, angle) {
+  const rad = angle * Math.PI / 180;
+  const cx = 90, cy = 75; // SVG 的畫布中心點
+  const nx = cx + (x - cx) * Math.cos(rad) - (y - cy) * Math.sin(rad);
+  const ny = cy + (x - cx) * Math.sin(rad) + (y - cy) * Math.cos(rad);
+  return {x: nx, y: ny};
+}
+
+// 建立永遠保持水平正向的 SVG 文字標籤
+function makeText(x, y, val) {
+  const isX = val === 'x';
+  const color = isX ? '#ff4444' : '#333';
+  const weight = isX ? 'bold' : 'normal';
+  return `<text x="${x}" y="${y}" font-size="22" text-anchor="middle" dominant-baseline="middle" fill="${color}" font-weight="${weight}">${val}</text>`;
+}
+
+// 🎯 全新升級：50% 問斜邊、50% 問直角邊，且任意角度旋轉
 function genPythagorean() {
-  const solveFor = Math.floor(Math.random() * 3); // 0:求斜邊, 1或2:求直角邊
+  // 精準控制機率：一半機率出斜邊未知 (0)，一半機率出直角邊未知 (1)
+  const solveFor = Math.random() < 0.5 ? 0 : 1; 
+  
   let aLabel, bLabel, cLabel;
   let targetSquared;
 
   if (solveFor === 0) { 
-    // 求斜邊：確保 a^2 + b^2 符合條件
+    // 【求斜邊】模式：已知兩直角邊 a, b，求斜邊 x
     let a, b;
     do {
       a = Math.floor(Math.random() * 12) + 2; 
       b = Math.floor(Math.random() * 12) + 2; 
       targetSquared = a * a + b * b;
     } while (!isSimplifiableSurd(targetSquared));
-    
-    aLabel = a;
-    bLabel = b;
-    cLabel = "x";
+    aLabel = a; bLabel = b; cLabel = "x";
   } else { 
-    // 求直角邊：確保 c^2 - a^2 符合條件
+    // 【求直角邊】模式：已知斜邊 c 與一直角邊 knownLeg，求另一直角邊 x
     let c, knownLeg;
     do {
-      c = Math.floor(Math.random() * 15) + 4; // 確保 c 夠大
-      knownLeg = Math.floor(Math.random() * (c - 2)) + 2; // 確保 knownLeg 小於 c
+      c = Math.floor(Math.random() * 15) + 4; 
+      knownLeg = Math.floor(Math.random() * (c - 2)) + 2; 
       targetSquared = c * c - knownLeg * knownLeg;
     } while (!isSimplifiableSurd(targetSquared));
     
-    if (solveFor === 1) {
-      aLabel = "x";
-      bLabel = knownLeg;
-      cLabel = c;
+    // 隨機決定 x 放在垂直邊還是水平邊
+    if (Math.random() < 0.5) {
+      aLabel = "x"; bLabel = knownLeg; cLabel = c;
     } else {
-      aLabel = knownLeg;
-      bLabel = "x";
-      cLabel = c;
+      aLabel = knownLeg; bLabel = "x"; cLabel = c;
     }
   }
 
+  // 將目標平方值化簡為最簡根式作為答案
   ans = simplifyNumber(targetSquared);
+
+  // 隨機產生 0 到 350 的旋轉角度 (每次跳 10 度)
+  const theta = Math.floor(Math.random() * 36) * 10;
+  
+  // 計算文字應該擺放的基礎外圍位置，然後套用相同的旋轉角度
+  // pVert: 垂直邊的外側, pHoriz: 水平邊的外側, pHypo: 斜邊的外側
+  const pVert = rotatePt(20, 75, theta);   
+  const pHoriz = rotatePt(90, 140, theta); 
+  const pHypo = rotatePt(105, 55, theta);  
 
   const svgHTML = `
     <svg width="180" height="150" viewBox="0 0 180 150" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="40,30 40,120 140,120" fill="rgba(55,140,249,0.05)" stroke="#378cf9" stroke-width="3" stroke-linejoin="round"/>
-        <polyline points="40,110 50,110 50,120" fill="none" stroke="#378cf9" stroke-width="2"/>
-        <text x="30" y="80" font-size="20" text-anchor="end" fill="${aLabel==='x'?'#ff4444':'#333'}" font-weight="${aLabel==='x'?'bold':'normal'}">${aLabel}</text>
-        <text x="90" y="145" font-size="20" text-anchor="middle" fill="${bLabel==='x'?'#ff4444':'#333'}" font-weight="${bLabel==='x'?'bold':'normal'}">${bLabel}</text>
-        <text x="100" y="70" font-size="20" text-anchor="start" fill="${cLabel==='x'?'#ff4444':'#333'}" font-weight="${cLabel==='x'?'bold':'normal'}">${cLabel}</text>
+        <g transform="rotate(${theta}, 90, 75)">
+            <polygon points="40,30 40,120 140,120" fill="rgba(55,140,249,0.05)" stroke="#378cf9" stroke-width="3" stroke-linejoin="round"/>
+            <polyline points="40,110 50,110 50,120" fill="none" stroke="#378cf9" stroke-width="2"/>
+        </g>
+        
+        ${makeText(pVert.x, pVert.y, aLabel)}
+        ${makeText(pHoriz.x, pHoriz.y, bLabel)}
+        ${makeText(pHypo.x, pHypo.y, cLabel)}
     </svg>
     <div id="type1-math-container"></div>
   `;
@@ -271,7 +305,6 @@ function next() {
   document.getElementById("msg").innerHTML = "";
   document.getElementById("checkBtn").disabled = false;
   
-  // 顯示勾股定理題目圖形
   document.getElementById("q").innerHTML = genPythagorean();
   katex.render("x = ?", document.getElementById("type1-math-container"), { throwOnError: false });
   
@@ -285,12 +318,19 @@ function updateUI() {
   document.getElementById("rate").textContent = totalQ === 0 ? "0%" : Math.round(correctQ/totalQ*100) + "%";
 }
 
+// 處理選擇題型按鈕的邏輯
+function setLevel(n) {
+  if (gameStarted) return;
+  level = n;
+  document.querySelectorAll(".level button").forEach((b,i)=>b.classList.toggle("on", i===n-1));
+  updateStartBtn();
+}
+
 function updateStartBtn() {
   const c = document.getElementById("className").value;
   const i = document.getElementById("studentId").value;
   const n = document.getElementById("studentName").value;
-  // 只要班級、學號、姓名都選了就可以開始
-  document.getElementById("startBtn").disabled = !(c && i && n);
+  document.getElementById("startBtn").disabled = !(c && i && n && level);
 }
 
 function updateStudentList() {
@@ -311,7 +351,10 @@ function autoFillName() {
 
 function startGame() { 
   gameStarted = true; 
-  ["className","studentId","studentName","startBtn"].forEach(id => document.getElementById(id).disabled = true);
+  ["className","studentId","studentName","startBtn", "lv1"].forEach(id => {
+      let el = document.getElementById(id);
+      if(el) el.disabled = true;
+  });
   startTime = Date.now(); 
   timer = setInterval(() => { 
     let s = Math.floor((Date.now()-startTime)/1000); 
@@ -344,7 +387,7 @@ function uploadScore() {
     studentName: document.getElementById("studentName").value,
     score: score, correct: correctQ,
     rate: totalQ === 0 ? "0" : (correctQ / totalQ * 100).toFixed(1),
-    level: "勾股定理", // 直接綁定為單一主題名稱
+    level: "題型" + level,
     timeSec: Math.floor((Date.now() - startTime) / 1000)
   };
 
